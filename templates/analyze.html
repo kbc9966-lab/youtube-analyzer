@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>영상 분석</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <p class="nav"><a href="/">← 검색으로</a> <a href="/report">분석 보고서 →</a></p>
+  <div id="root"></div>
+</div>
+
+<script>
+const videoId = {{ video_id|tojson }};
+const title = new URLSearchParams(location.search).get('title') || '';
+const num = n => (typeof n === 'number' ? n.toLocaleString() : '-');
+function esc(t) { const d = document.createElement('div'); d.textContent = t ?? ''; return d.innerHTML; }
+const list = items => `<ul>${(items || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li>-</li>'}</ul>`;
+
+const SCORES = [['thumbnail', '썸네일'], ['title', '제목'], ['content', '내용']];
+const root = document.getElementById('root');
+
+async function run(refresh) {
+  root.innerHTML = `<div class="loading"><div class="spinner"></div>
+    자막과 썸네일을 가져와서 AI가 분석하고 있어요. 1~2분 정도 걸려요.</div>`;
+  try {
+    const res = await fetch('/api/analyze/' + videoId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, refresh }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    render(data);
+  } catch (err) {
+    root.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  }
+}
+
+function render(data) {
+  const v = data.video, a = data.analysis, s = a.scores || {};
+  document.title = '분석 · ' + v.title;
+  const ratio = v.views && v.subscribers ? (v.views / v.subscribers).toFixed(1) + '배' : '-';
+  const dl = `/report/download?ids=${v.id}`;
+  root.innerHTML = `
+    <div class="hero">
+      <a href="${v.url}" target="_blank"><img src="${v.thumbnail_url}" alt="썸네일"></a>
+      <div>
+        <h2>${esc(v.title)}</h2>
+        <div class="sub">${esc(v.channel)} · ${esc(v.upload_date)} · ${esc(v.subtitle_info)}</div>
+        <div class="stats">
+          <div class="stat"><b>${num(v.views)}</b><span>조회수</span></div>
+          <div class="stat"><b>${num(v.subscribers)}</b><span>구독자</span></div>
+          <div class="stat"><b>${ratio}</b><span>구독자 대비</span></div>
+          <div class="stat"><b>${num(v.comments)}</b><span>댓글</span></div>
+        </div>
+        <div class="scores">${SCORES.map(([k, label]) => `
+          <div class="score"><span>${label}</span>
+            <div class="meter"><i style="width:${(s[k] || 0) * 10}%"></i></div><b>${s[k] ?? '-'}</b></div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict"><span class="label">핵심</span>${esc(a.one_line)}</div>
+
+    <div class="reasons">${(a.reasons || []).map((r, i) => `
+      <div class="reason"><div class="rank">${i + 1}</div>
+        <div><b>${esc(r.title)}</b><p>${esc(r.detail)}</p></div></div>`).join('')}
+    </div>
+
+    <div class="points">
+      <div class="point"><h3>썸네일 포인트</h3>${list(a.thumbnail)}</div>
+      <div class="point"><h3>내용 포인트</h3>${list(a.content)}</div>
+      <div class="point"><h3>따라 할 점</h3>${list(a.takeaways)}</div>
+      <div class="point"><h3>내용 흐름</h3>${list(a.summary)}</div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="${dl}&format=html&full=1">이 영상 보고서 받기 (HTML)</a>
+      <a class="btn ghost" href="${dl}&format=md&full=1">Markdown</a>
+      <button class="ghost" id="refresh">다시 분석</button>
+      <span class="sub small">${data.cached ? '저장된 분석 결과' : '방금 분석'} · ${esc(data.analyzed_at)}</span>
+    </div>`;
+  document.getElementById('refresh').onclick = () => run(true);
+}
+
+run(false);
+</script>
+</body>
+</html>

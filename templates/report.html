@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>분석 보고서</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <p class="nav"><a href="/">← 검색으로</a></p>
+  <h1>분석 보고서</h1>
+  <p class="sub">지금까지 분석한 영상의 요약이에요. 보고서에 넣을 영상을 골라 파일로 내려받으세요.</p>
+
+  <div class="bar">
+    <label class="check"><input type="checkbox" id="all" checked> 전체 선택</label>
+    <label class="check"><input type="checkbox" id="full"> 썸네일·내용 포인트까지 포함</label>
+    <span class="status" id="status"></span>
+    <span class="actions">
+      <button id="dlHtml">보고서 받기 (HTML)</button>
+      <button class="ghost" id="dlMd">Markdown</button>
+    </span>
+  </div>
+  <div id="list"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const num = n => (typeof n === 'number' ? n.toLocaleString() : '-');
+function esc(t) { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+
+function selectedIds() {
+  return [...document.querySelectorAll('.pick:checked')].map(c => c.value);
+}
+function updateStatus() {
+  const n = selectedIds().length, total = document.querySelectorAll('.pick').length;
+  $('status').textContent = `${total}개 중 ${n}개 선택`;
+  $('dlHtml').disabled = $('dlMd').disabled = n === 0;
+}
+function download(format) {
+  const ids = selectedIds();
+  if (!ids.length) return;
+  location.href = `/report/download?ids=${ids.join(',')}&format=${format}&full=${$('full').checked ? 1 : 0}`;
+}
+
+async function load() {
+  const data = await (await fetch('/api/results')).json();
+  if (!data.results.length) {
+    $('list').innerHTML = '<p class="sub">아직 분석한 영상이 없어요. 검색 화면에서 영상을 분석하면 여기에 모여요.</p>';
+    updateStatus(); return;
+  }
+  $('list').innerHTML = data.results.map(r => {
+    const v = r.video, a = r.analysis;
+    const ratio = v.views && v.subscribers ? (v.views / v.subscribers).toFixed(1) + '배' : '-';
+    return `<div class="rcard">
+      <input type="checkbox" class="pick" value="${v.id}" checked>
+      <a href="/analyze/${v.id}" target="_blank"><img src="${v.thumbnail_url}" alt=""></a>
+      <div class="rbody">
+        <div class="title"><a href="/analyze/${v.id}" target="_blank">${esc(v.title)}</a></div>
+        <div class="meta">${esc(v.channel)} · <span class="views">조회수 ${num(v.views)}</span> · 구독자 대비 ${ratio} · ${esc(v.upload_date)}</div>
+        <p class="why"><b>핵심</b> ${esc(a.one_line)}</p>
+        <ol class="top3">${(a.reasons || []).map(x => `<li><b>${esc(x.title)}</b> ${esc(x.detail)}</li>`).join('')}</ol>
+      </div>
+      <button class="ghost del" data-id="${v.id}" title="목록에서 삭제">삭제</button>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.pick').forEach(c => c.onchange = updateStatus);
+  document.querySelectorAll('.del').forEach(b => b.onclick = async () => {
+    if (!confirm('이 영상의 분석 결과를 삭제할까요?')) return;
+    await fetch('/api/results/' + b.dataset.id, { method: 'DELETE' });
+    load();
+  });
+  updateStatus();
+}
+
+$('all').onchange = e => { document.querySelectorAll('.pick').forEach(c => c.checked = e.target.checked); updateStatus(); };
+$('dlHtml').onclick = () => download('html');
+$('dlMd').onclick = () => download('md');
+load();
+</script>
+</body>
+</html>
